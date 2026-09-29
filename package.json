@@ -1,0 +1,71 @@
+{
+  "name": "easymod-bridge",
+  "productName": "EasyMod - Modpack Bridge",
+  "version": "1.0.0",
+  "description": "Seamlessly import and sync CurseForge modpacks into Minecraft launchers with 1-click.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test:engine": "node execution/test_bridge_engine.js",
+    "dist": "electron-builder --win",
+    "dist:portable": "electron-builder --win portable",
+    "dist:installer": "electron-builder --win nsis"
+  },
+  "keywords": [
+    "minecraft",
+    "curseforge",
+    "legacy-launcher",
+    "modpack",
+    "forge",
+    "fabric",
+    "neoforge",
+    "sync"
+  ],
+  "author": "kyleadriann",
+  "license": "MIT",
+  "dependencies": {
+    "fs-extra": "^11.4.1"
+  },
+  "devDependencies": {
+    "electron": "^34.5.8",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.easymod.bridge",
+    "productName": "EasyMod - Modpack Bridge",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "EasyMod",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico"
+    }
+  }
+}
