@@ -43,7 +43,7 @@ EasyMod is designed to be lightweight, transparent, and safe:
 ## Getting Started
 
 ### For Players
-1. Download the latest `EasyMod - Modpack Bridge Setup 1.0.0.exe` from the [Releases](https://github.com/kyleadriann/easymod/releases) tab.
+1. Download the latest `EasyMod - Modpack Bridge Setup` from the [Releases](https://github.com/kyleadriann/easymod/releases) tab.
 2. Launch the installer (or portable executable).
 3. On first launch, verify that your Minecraft and CurseForge folders are detected, then click **Get Started**.
 
