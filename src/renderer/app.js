@@ -620,6 +620,7 @@ document.addEventListener('DOMContentLoaded', () => {
     progressPlayBtn?.classList.add('hidden');
     progressOpenFolderBtn.classList.add('hidden');
     progressCancelBtn.classList.remove('hidden');
+    progressCancelBtn.textContent = 'Cancel Sync';
 
     modalProgress.classList.remove('hidden');
 
