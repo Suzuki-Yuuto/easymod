@@ -82,6 +82,149 @@ function getConfigFilePath() {
   return path.join(baseDir, 'config.json');
 }
 
+function getDefaultLauncherPath() {
+  const candidates = [];
+  if (process.env.APPDATA) {
+    candidates.push(path.join(process.env.APPDATA, '.tlauncher', 'legacy', 'Minecraft', 'LL.exe'));
+    candidates.push(path.join(process.env.APPDATA, '.minecraft', 'LL.exe'));
+    candidates.push(path.join(process.env.APPDATA, '.minecraft', 'LegacyLauncher.exe'));
+  }
+  if (process.env.LOCALAPPDATA) {
+    candidates.push(path.join(process.env.LOCALAPPDATA, 'Programs', 'LegacyLauncher', 'LegacyLauncher.exe'));
+    candidates.push(path.join(process.env.LOCALAPPDATA, 'Programs', 'Legacy Launcher', 'LegacyLauncher.exe'));
+    candidates.push(path.join(process.env.LOCALAPPDATA, 'Programs', 'LegacyLauncher', 'LL.exe'));
+  }
+  candidates.push('C:\\Program Files\\LegacyLauncher\\LegacyLauncher.exe');
+  candidates.push('C:\\Program Files (x86)\\LegacyLauncher\\LegacyLauncher.exe');
+
+  for (const c of candidates) {
+    try {
+      if (c && fs.existsSync(c)) return c;
+    } catch (_) {}
+  }
+  return '';
+}
+
+function findLauncherExecutable(config = {}) {
+  // 1. Explicit user configured path
+  if (config.customLauncherPath && fs.existsSync(config.customLauncherPath)) {
+    try {
+      const stat = fs.statSync(config.customLauncherPath);
+      if (stat.isFile()) return path.resolve(config.customLauncherPath);
+    } catch (_) {}
+  }
+
+  // 2. Relative to configured minecraftPath (e.g. if minecraftPath is .tlauncher/legacy/Minecraft/game)
+  if (config.minecraftPath) {
+    const relativeCandidates = [
+      path.join(config.minecraftPath, '..', 'LL.exe'),
+      path.join(config.minecraftPath, 'LL.exe'),
+      path.join(config.minecraftPath, '..', 'LegacyLauncher.exe'),
+      path.join(config.minecraftPath, 'LegacyLauncher.exe')
+    ];
+    for (const c of relativeCandidates) {
+      try {
+        if (fs.existsSync(c) && fs.statSync(c).isFile()) return path.resolve(c);
+      } catch (_) {}
+    }
+  }
+
+  // 3. Known launcher install locations
+  const defaultPath = getDefaultLauncherPath();
+  if (defaultPath && fs.existsSync(defaultPath)) {
+    return path.resolve(defaultPath);
+  }
+
+  return null;
+}
+
+function findTlProperties(config = {}, launcherExe = null) {
+  const candidates = [];
+  if (launcherExe) {
+    candidates.push(path.join(path.dirname(launcherExe), 'tl.properties'));
+  }
+  if (process.env.APPDATA) {
+    candidates.push(path.join(process.env.APPDATA, '.tlauncher', 'legacy', 'Minecraft', 'tl.properties'));
+    candidates.push(path.join(process.env.APPDATA, '.tlauncher', 'tl.properties'));
+  }
+  if (config.minecraftPath) {
+    candidates.push(path.join(config.minecraftPath, '..', 'tl.properties'));
+    candidates.push(path.join(config.minecraftPath, 'tl.properties'));
+  }
+  for (const c of candidates) {
+    try {
+      if (c && fs.existsSync(c) && fs.statSync(c).isFile()) return path.resolve(c);
+    } catch (_) {}
+  }
+  return null;
+}
+
+function setLauncherSelectedVersion(versionName, config = {}) {
+  const launcherExe = findLauncherExecutable(config);
+  const tlPropsPath = findTlProperties(config, launcherExe);
+  let updatedTl = false;
+
+  if (tlPropsPath && fs.existsSync(tlPropsPath)) {
+    try {
+      let content = fs.readFileSync(tlPropsPath, 'utf8');
+      if (/^login\.version=.*$/m.test(content)) {
+        content = content.replace(/^login\.version=.*$/m, `login.version=${versionName}`);
+      } else {
+        content += `\nlogin.version=${versionName}\n`;
+      }
+      fs.writeFileSync(tlPropsPath, content, 'utf8');
+      updatedTl = true;
+    } catch (err) {
+      console.error('Failed to update tl.properties:', err);
+    }
+  }
+
+  // Also update launcher_profiles.json if present for vanilla launcher compatibility
+  const profilePaths = [
+    path.join(config.minecraftPath || '', 'launcher_profiles.json'),
+    path.join(process.env.APPDATA || '', '.minecraft', 'launcher_profiles.json')
+  ];
+  let updatedProfiles = false;
+  for (const profPath of profilePaths) {
+    try {
+      if (fs.existsSync(profPath)) {
+        const json = JSON.parse(fs.readFileSync(profPath, 'utf8'));
+        if (json && json.profiles) {
+          let found = false;
+          for (const key of Object.keys(json.profiles)) {
+            if (json.profiles[key].lastVersionId === versionName || json.profiles[key].name === versionName) {
+              json.selectedProfile = key;
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            const profileKey = versionName.toLowerCase().replace(/[^a-z0-9]/g, '_');
+            json.profiles[profileKey] = {
+              name: versionName,
+              lastVersionId: versionName,
+              type: 'custom',
+              created: new Date().toISOString(),
+              icon: 'Chest'
+            };
+            json.selectedProfile = profileKey;
+          }
+          fs.writeFileSync(profPath, JSON.stringify(json, null, 2), 'utf8');
+          updatedProfiles = true;
+        }
+      }
+    } catch (_) {}
+  }
+
+  return {
+    success: updatedTl || updatedProfiles || true,
+    updatedTl,
+    updatedProfiles,
+    versionName,
+    tlPropsPath
+  };
+}
+
 function getDefaultConfig() {
   return {
     minecraftPath: getDefaultMinecraftPath(),
@@ -89,7 +232,7 @@ function getDefaultConfig() {
     cleanSync: true,
     includeSaves: false,
     autoScanOnStart: true,
-    customLauncherPath: '',
+    customLauncherPath: getDefaultLauncherPath(),
     firstRunCompleted: false
   };
 }
@@ -100,7 +243,11 @@ function loadConfig() {
   if (fs.existsSync(configPath)) {
     try {
       const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      return { ...defaults, ...data };
+      const merged = { ...defaults, ...data };
+      if (!merged.customLauncherPath) {
+        merged.customLauncherPath = getDefaultLauncherPath();
+      }
+      return merged;
     } catch (err) {
       console.error('Failed to parse config file, using defaults:', err);
     }
@@ -118,6 +265,10 @@ function saveConfig(newConfig) {
 module.exports = {
   getDefaultMinecraftPath,
   getDefaultCurseForgePath,
+  getDefaultLauncherPath,
+  findLauncherExecutable,
+  findTlProperties,
+  setLauncherSelectedVersion,
   getConfigFilePath,
   getDefaultConfig,
   loadConfig,

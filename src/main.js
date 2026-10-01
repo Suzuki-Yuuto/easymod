@@ -1,7 +1,14 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs-extra');
-const { loadConfig, saveConfig, getDefaultConfig } = require('./config');
+const { spawn, exec } = require('child_process');
+const { 
+  loadConfig, 
+  saveConfig, 
+  getDefaultConfig, 
+  findLauncherExecutable, 
+  setLauncherSelectedVersion 
+} = require('./config');
 const { scanInstalledVersions, scanCurseForgeInstances } = require('./scanner');
 const { syncModpack, cancelCurrentSync } = require('./synchronizer');
 
@@ -78,6 +85,24 @@ ipcMain.handle('select-directory', async (_, defaultPath) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     defaultPath: defaultPath && fs.existsSync(defaultPath) ? defaultPath : undefined,
     properties: ['openDirectory', 'createDirectory']
+  });
+  if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+    return null;
+  }
+  return result.filePaths[0];
+});
+
+// IPC Handler: Select File Dialog (e.g. for .exe)
+ipcMain.handle('select-file', async (_, options = {}) => {
+  if (!mainWindow) return null;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: options.title || 'Select Launcher Executable',
+    defaultPath: options.defaultPath && fs.existsSync(options.defaultPath) ? options.defaultPath : undefined,
+    properties: ['openFile'],
+    filters: options.filters || [
+      { name: 'Executables (*.exe)', extensions: ['exe'] },
+      { name: 'All Files (*.*)', extensions: ['*'] }
+    ]
   });
   if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
     return null;
@@ -175,36 +200,95 @@ ipcMain.handle('open-path', async (_, targetPath) => {
   return false;
 });
 
+// Helper: Launch Launcher Process reliably
+async function launchLauncherProcess(launcherPath) {
+  if (!launcherPath || !(await fs.pathExists(launcherPath))) {
+    return { success: false, error: 'Launcher executable not found. Please set your launcher path in Settings.' };
+  }
+
+  const launcherDir = path.dirname(launcherPath);
+
+  // Strategy 1: Electron shell.openPath (native OS ShellExecute)
+  try {
+    const err = await shell.openPath(launcherPath);
+    if (!err) {
+      return { success: true, launcherPath, method: 'openPath' };
+    }
+    console.warn('shell.openPath warning:', err);
+  } catch (openErr) {
+    console.warn('shell.openPath failed, trying fallback:', openErr);
+  }
+
+  // Strategy 2: child_process.spawn with working directory set to launcher directory
+  try {
+    const child = spawn(launcherPath, [], {
+      cwd: launcherDir,
+      detached: true,
+      stdio: 'ignore'
+    });
+    child.unref();
+    return { success: true, launcherPath, method: 'spawn' };
+  } catch (spawnErr) {
+    console.warn('spawn failed, trying cmd start fallback:', spawnErr);
+  }
+
+  // Strategy 3: cmd /c start
+  try {
+    await new Promise((resolve, reject) => {
+      exec(`start "" /D "${launcherDir}" "${launcherPath}"`, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+    return { success: true, launcherPath, method: 'cmd' };
+  } catch (cmdErr) {
+    return { success: false, error: cmdErr.message || 'Failed to start launcher process' };
+  }
+}
+
 // IPC Handler: Launch or Open Legacy Launcher
 ipcMain.handle('open-legacy-launcher', async () => {
   const config = loadConfig();
-  if (config.customLauncherPath && await fs.pathExists(config.customLauncherPath)) {
-    await shell.openPath(config.customLauncherPath);
-    return true;
-  }
-
-  // Common legacy launcher locations
-  const candidates = [
-    path.join(process.env.APPDATA || '', '.minecraft', 'LegacyLauncher.exe'),
-    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'LegacyLauncher', 'LegacyLauncher.exe'),
-    'C:\\Program Files\\LegacyLauncher\\LegacyLauncher.exe',
-    'C:\\Program Files (x86)\\LegacyLauncher\\LegacyLauncher.exe'
-  ];
-
-  for (const candidate of candidates) {
-    if (await fs.pathExists(candidate)) {
-      await shell.openPath(candidate);
-      return true;
-    }
+  const launcherPath = findLauncherExecutable(config);
+  if (launcherPath) {
+    return launchLauncherProcess(launcherPath);
   }
 
   // Fallback: Open .minecraft directory so user can launch whatever launcher they have
-  if (await fs.pathExists(config.minecraftPath)) {
+  if (config.minecraftPath && (await fs.pathExists(config.minecraftPath))) {
     await shell.openPath(config.minecraftPath);
-    return true;
+    return { success: false, error: 'Launcher executable not found. Opened Minecraft directory instead.' };
   }
 
-  return false;
+  return { success: false, error: 'Launcher executable not found. Please specify it in Settings.' };
+});
+
+// IPC Handler: Launch Modpack (Pre-selects version in launcher config and launches it)
+ipcMain.handle('launch-modpack', async (_, versionName) => {
+  if (!versionName) {
+    return { success: false, error: 'No version specified to launch.' };
+  }
+
+  const config = loadConfig();
+
+  // 1. Pre-select version in tl.properties / launcher profiles
+  try {
+    setLauncherSelectedVersion(versionName, config);
+  } catch (err) {
+    console.error('Failed setting version in launcher config:', err);
+  }
+
+  // 2. Launch the launcher executable
+  const launcherPath = findLauncherExecutable(config);
+  if (launcherPath) {
+    const launchRes = await launchLauncherProcess(launcherPath);
+    return { ...launchRes, versionName };
+  }
+
+  return {
+    success: false,
+    error: 'Launcher executable (LL.exe) not found. Please set your launcher path in Settings.'
+  };
 });
 
 // Window controls

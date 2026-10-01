@@ -76,6 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const progressCancelBtn = document.getElementById('progress-cancel-btn');
   const progressOpenFolderBtn = document.getElementById('progress-open-folder-btn');
   const progressDoneBtn = document.getElementById('progress-done-btn');
+  const progressPlayBtn = document.getElementById('progress-play-btn');
 
   // DOM Elements - Guide Modal
   const modalGuide = document.getElementById('modal-guide');
@@ -115,6 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const onboardingStartBtn = document.getElementById('onboarding-start-btn');
 
   // DOM Elements - Details Drawer
+  const drawerBackdrop = document.getElementById('drawer-backdrop');
   const drawerDetails = document.getElementById('drawer-details');
   const drawerDetailsClose = document.getElementById('drawer-details-close');
   const drawerBannerContainer = document.getElementById('drawer-banner-container');
@@ -130,6 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnCopyHomePath = document.getElementById('btn-copy-home-path');
   const drawerSyncMetaBox = document.getElementById('drawer-sync-meta-box');
   const drawerLastSyncDate = document.getElementById('drawer-last-sync-date');
+  const drawerPlayBtn = document.getElementById('drawer-play-btn');
   const drawerActionBtn = document.getElementById('drawer-action-btn');
   const drawerOpenFolderBtn = document.getElementById('drawer-open-folder-btn');
 
@@ -289,6 +292,34 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Play Modpack: Pre-selects in Legacy Launcher and opens launcher
+  async function handlePlayModpack(pack) {
+    if (!pack) return;
+    if (!pack.isSynced) {
+      showToast(`"${pack.name}" is not imported yet. Please import it first.`, 'info');
+      openImportModal(pack);
+      return;
+    }
+
+    const versionName = pack.sanitizedName;
+    showToast(`Pre-selecting "${versionName}" in launcher & launching...`, 'info');
+
+    if (window.bridgeAPI && window.bridgeAPI.launchModpack) {
+      try {
+        const res = await window.bridgeAPI.launchModpack(versionName);
+        if (res && res.success) {
+          showToast(`Legacy Launcher opened! "${versionName}" is pre-selected.`, 'success');
+        } else {
+          showToast(res?.error || `Failed to launch launcher with "${versionName}". Check settings.`, 'error');
+        }
+      } catch (err) {
+        showToast(`Launch failed: ${err.message}`, 'error');
+      }
+    } else {
+      showToast('Launch API not available.', 'error');
+    }
+  }
+
   function createModpackCard(pack) {
     const card = document.createElement('div');
     const statusClass = pack.status === 'synced' ? 'is-synced' : (pack.status === 'ready' ? 'is-ready' : 'is-missing');
@@ -332,6 +363,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     let bannerHtml = '';
+
     if (pack.thumbnail) {
       bannerHtml = `<img src="${pack.thumbnail}" alt="${escapeHtml(pack.name)}" loading="lazy">`;
     } else {
@@ -348,12 +380,18 @@ document.addEventListener('DOMContentLoaded', () => {
     let actionBtnHtml = '';
     if (pack.status === 'synced') {
       actionBtnHtml = `
-        <button class="btn-primary btn-sync-cyan card-action-btn" data-action="resync" style="flex: 1;">
+        <button class="btn-primary btn-play-pack card-play-btn" style="flex: 1.2;" title="Pre-select in Legacy Launcher & Play">
+          <svg class="icon-14" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          </svg>
+          Play
+        </button>
+        <button class="btn-primary btn-sync-cyan card-action-btn" data-action="resync" title="Re-Sync Files" style="height: 32px; padding: 0 10px; flex: 1;">
           <svg class="icon-14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path>
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
           </svg>
-          Re-Sync
+          <span>Sync</span>
         </button>
         <button class="btn-card-icon card-open-folder" title="Open Game Directory">
           <svg class="icon-14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -430,6 +468,14 @@ document.addEventListener('DOMContentLoaded', () => {
     `;
 
     // Click Handlers
+    const playBtns = card.querySelectorAll('.card-play-btn');
+    playBtns.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handlePlayModpack(pack);
+      });
+    });
+
     const actionBtn = card.querySelector('.card-action-btn');
     actionBtn?.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -571,6 +617,7 @@ document.addEventListener('DOMContentLoaded', () => {
     progressSuccessIcon.classList.add('hidden');
     progressSuccessPanel.classList.add('hidden');
     progressDoneBtn.classList.add('hidden');
+    progressPlayBtn?.classList.add('hidden');
     progressOpenFolderBtn.classList.add('hidden');
     progressCancelBtn.classList.remove('hidden');
 
@@ -600,6 +647,18 @@ document.addEventListener('DOMContentLoaded', () => {
       progressCancelBtn.classList.add('hidden');
       progressDoneBtn.classList.remove('hidden');
       progressOpenFolderBtn.classList.remove('hidden');
+      progressPlayBtn?.classList.remove('hidden');
+
+      if (progressPlayBtn) {
+        progressPlayBtn.onclick = () => {
+          modalProgress.classList.add('hidden');
+          handlePlayModpack({
+            name: syncResult.targetName,
+            sanitizedName: syncResult.targetName,
+            isSynced: true
+          });
+        };
+      }
 
       progressOpenFolderBtn.onclick = () => window.bridgeAPI.openPath(syncResult.targetHomeDir);
 
@@ -687,9 +746,47 @@ document.addEventListener('DOMContentLoaded', () => {
       drawerSyncMetaBox.classList.add('hidden');
     }
 
-    drawerActionBtn.textContent = pack.isSynced ? 'Re-Sync Files' : (pack.status === 'ready' ? 'Import to Launcher' : 'View Loader Guide');
+    if (pack.isSynced) {
+      drawerPlayBtn?.classList.remove('hidden');
+      if (drawerPlayBtn) {
+        drawerPlayBtn.onclick = () => {
+          closeDetailsDrawer();
+          handlePlayModpack(pack);
+        };
+      }
+      drawerActionBtn.innerHTML = `
+        <svg class="icon-14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+        </svg>
+        <span>Re-Sync Files</span>
+      `;
+      drawerActionBtn.className = 'btn-primary btn-sync-cyan';
+    } else {
+      drawerPlayBtn?.classList.add('hidden');
+      if (pack.status === 'ready') {
+        drawerActionBtn.innerHTML = `
+          <svg class="icon-14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span>Import to Launcher</span>
+        `;
+        drawerActionBtn.className = 'btn-primary';
+      } else {
+        drawerActionBtn.innerHTML = `
+          <svg class="icon-14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <span>View Loader Guide</span>
+        `;
+        drawerActionBtn.className = 'btn-primary btn-warning-guide';
+      }
+    }
+
     drawerActionBtn.onclick = () => {
-      drawerDetails.classList.remove('open');
+      closeDetailsDrawer();
       if (pack.status === 'synced' || pack.status === 'ready') openImportModal(pack);
       else openGuideModal(pack);
     };
@@ -699,9 +796,25 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     drawerDetails.classList.add('open');
+    drawerBackdrop?.classList.add('active');
   }
 
-  drawerDetailsClose?.addEventListener('click', () => drawerDetails.classList.remove('open'));
+  function closeDetailsDrawer() {
+    drawerDetails?.classList.remove('open');
+    drawerBackdrop?.classList.remove('active');
+  }
+
+  drawerDetailsClose?.addEventListener('click', closeDetailsDrawer);
+  drawerBackdrop?.addEventListener('click', closeDetailsDrawer);
+
+  // Click outside drawer dismisses it
+  document.addEventListener('pointerdown', (e) => {
+    if (!drawerDetails || !drawerDetails.classList.contains('open')) return;
+    if (drawerDetails.contains(e.target)) return;
+    // Don't close if clicking the info button or card title that triggered opening
+    if (e.target.closest && (e.target.closest('.card-info-btn') || e.target.closest('.card-title'))) return;
+    closeDetailsDrawer();
+  });
 
   btnCopyCfPath?.addEventListener('click', () => {
     navigator.clipboard.writeText(drawerPathCf.value);
@@ -743,7 +856,13 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   btnBrowseLauncher?.addEventListener('click', async () => {
-    if (window.bridgeAPI) {
+    if (window.bridgeAPI && window.bridgeAPI.selectFile) {
+      const selected = await window.bridgeAPI.selectFile({
+        defaultPath: settingLauncherPath.value,
+        title: 'Select Launcher Executable (.exe)'
+      });
+      if (selected) settingLauncherPath.value = selected;
+    } else if (window.bridgeAPI) {
       const selected = await window.bridgeAPI.selectDirectory(settingLauncherPath.value);
       if (selected) settingLauncherPath.value = selected;
     }
@@ -788,8 +907,15 @@ document.addEventListener('DOMContentLoaded', () => {
   btnOpenMc?.addEventListener('click', () => {
     if (state.config && window.bridgeAPI) window.bridgeAPI.openPath(state.config.minecraftPath);
   });
-  btnLaunchGame?.addEventListener('click', () => {
-    if (window.bridgeAPI) window.bridgeAPI.openLegacyLauncher();
+  btnLaunchGame?.addEventListener('click', async () => {
+    if (!window.bridgeAPI) return;
+    showToast('Starting Legacy Launcher...', 'info');
+    const res = await window.bridgeAPI.openLegacyLauncher();
+    if (res && res.success) {
+      showToast('Legacy Launcher launched!', 'success');
+    } else {
+      showToast(res?.error || 'Could not launch Legacy Launcher. Check settings.', 'error');
+    }
   });
 
   // Search input
@@ -816,7 +942,7 @@ document.addEventListener('DOMContentLoaded', () => {
       else if (!modalProgress.classList.contains('hidden') && !state.isSyncing) modalProgress.classList.add('hidden');
       else if (!modalGuide.classList.contains('hidden')) modalGuide.classList.add('hidden');
       else if (!modalSettings.classList.contains('hidden')) closeSettingsModal();
-      else if (drawerDetails.classList.contains('open')) drawerDetails.classList.remove('open');
+      else if (drawerDetails.classList.contains('open')) closeDetailsDrawer();
     }
   });
 

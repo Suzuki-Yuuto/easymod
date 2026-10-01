@@ -1,7 +1,7 @@
 {
   "name": "easymod-bridge",
   "productName": "EasyMod - Modpack Bridge",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Seamlessly import and sync CurseForge modpacks into Minecraft launchers with 1-click.",
   "main": "src/main.js",
   "scripts": {

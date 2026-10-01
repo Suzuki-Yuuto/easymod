@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('bridgeAPI', {
   // OS / Shell operations
   openPath: (targetPath) => ipcRenderer.invoke('open-path', targetPath),
   openLegacyLauncher: () => ipcRenderer.invoke('open-legacy-launcher'),
+  launchModpack: (versionName) => ipcRenderer.invoke('launch-modpack', versionName),
+  selectFile: (options) => ipcRenderer.invoke('select-file', options),
 
   // Window Controls
   windowMinimize: () => ipcRenderer.send('window-minimize'),

@@ -1,6 +1,12 @@
 const fs = require('fs-extra');
 const path = require('path');
-const { loadConfig, saveConfig } = require('../src/config');
+const { 
+  loadConfig, 
+  saveConfig, 
+  findLauncherExecutable, 
+  findTlProperties, 
+  setLauncherSelectedVersion 
+} = require('../src/config');
 const { scanInstalledVersions, scanCurseForgeInstances, sanitizeName } = require('../src/scanner');
 const { syncModpack } = require('../src/synchronizer');
 
@@ -134,6 +140,42 @@ async function runTests() {
   // Cleanup sandbox
   await fs.remove(sandboxDir);
   console.log('   ✓ Sandbox cleaned up.\n');
+
+  // Test 4: Launcher Detection & tl.properties Pre-selection
+  console.log('4. Testing Launcher Executable & Version Pre-selection...');
+  const launcherPath = findLauncherExecutable(cfg);
+  console.log('   - Detected Launcher Executable:', launcherPath);
+  if (!launcherPath || !fs.existsSync(launcherPath)) {
+    throw new Error('Could not detect Legacy Launcher executable (LL.exe)');
+  }
+  console.log('   ✓ Legacy Launcher LL.exe located successfully.');
+
+  const tlProps = findTlProperties(cfg, launcherPath);
+  console.log('   - Detected tl.properties:', tlProps);
+  if (!tlProps || !fs.existsSync(tlProps)) {
+    throw new Error('Could not locate tl.properties for Legacy Launcher');
+  }
+
+  // Backup existing version
+  const origContent = fs.readFileSync(tlProps, 'utf8');
+  const match = origContent.match(/^login\.version=(.*)$/m);
+  const origVersion = match ? match[1] : '';
+
+  // Test setting a version
+  const testTargetVersion = 'Linggango';
+  setLauncherSelectedVersion(testTargetVersion, cfg);
+  const updatedContent = fs.readFileSync(tlProps, 'utf8');
+  const newMatch = updatedContent.match(/^login\.version=(.*)$/m);
+  if (!newMatch || newMatch[1] !== testTargetVersion) {
+    throw new Error(`Failed to update login.version in tl.properties. Expected: ${testTargetVersion}, got: ${newMatch ? newMatch[1] : 'none'}`);
+  }
+  console.log(`   ✓ login.version in tl.properties successfully set to "${testTargetVersion}".`);
+
+  // Restore original
+  if (origVersion) {
+    setLauncherSelectedVersion(origVersion, cfg);
+  }
+  console.log('   ✓ Original launcher version restored.\n');
 
   console.log('=== All Engine Tests Passed Successfully! ===');
 }
